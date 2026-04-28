@@ -1,0 +1,46 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug rasta",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/bin/rasta",
+            "args": [
+                "--width",
+                "320",
+                "--height",
+                "200",
+                "--bpp",
+                "1",
+                "--framebuffer",
+                "/tmp/rasta.fb",
+                "--port",
+                "5000",
+                "--scale",
+                "1",
+                "--cursor",
+                "off"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [
+                {
+                    "name": "ASAN_OPTIONS",
+                    "value": "detect_leaks=0"
+                }
+            ],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "preLaunchTask": "build",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        }
+    ]
+}
