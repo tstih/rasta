@@ -108,27 +108,32 @@ input_broadcaster::~input_broadcaster()
     delete subscriber_storage_;
 }
 
-void input_broadcaster::poll_subscribers()
+bool input_broadcaster::poll_subscribers(std::string &latest_payload)
 {
     if (subscriber_storage_ == nullptr) {
-        return;
+        return false;
     }
 
-    std::array<std::uint8_t, 32> probe {};
+    latest_payload.clear();
+    std::array<char, 512> probe {};
+    bool received_any = false;
     for (;;) {
         socklen_t sender_length = sizeof(*subscriber_storage_);
         const ssize_t received = recvfrom(socket_fd_, probe.data(),
-            probe.size(), 0, reinterpret_cast<sockaddr *>(subscriber_storage_),
-            &sender_length);
+            probe.size(), 0,
+            reinterpret_cast<sockaddr *>(subscriber_storage_), &sender_length);
 
         if (received >= 0) {
             has_subscriber_ = true;
             subscriber_length_ = sender_length;
+            latest_payload.assign(probe.data(),
+                static_cast<std::size_t>(received));
+            received_any = true;
             continue;
         }
 
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
-            return;
+            return received_any;
         }
 
         throw make_errno_error("unable to receive subscriber datagram");

@@ -21,12 +21,25 @@ struct rasta_options {
     bool show_cursor;
 };
 
+// Returns the default emulator configuration used at startup and as the
+// baseline for subscriber-driven reconfiguration.
+rasta_options default_rasta_options();
+
 // Parses command-line arguments into emulator options.
-// Expects named arguments: --width <n> --height <n> [--bpp <n>].
-// Optional flags: --framebuffer <path>, --port <udp_port>, --scale <n>,
-// and --cursor <on|off>.
+// All settings are optional and fall back to default_rasta_options().
+// Optional flags: --width <n>, --height <n>, --bpp <n>,
+// --framebuffer <path>, --port <udp_port>, --scale <n>, and
+// --cursor <on|off>.
 // Returns true on success and false when arguments are invalid.
 bool parse_arguments(int argc, char **argv, rasta_options &options,
+    std::string &error_message);
+
+// Parses a whitespace-delimited option string using the same syntax as
+// the command line. Unspecified fields inherit from base_options.
+// Subscriber reconfiguration intentionally rejects --port because the
+// UDP socket is already bound when the datagram is received.
+bool parse_argument_string(const std::string &text,
+    const rasta_options &base_options, rasta_options &options,
     std::string &error_message);
 
 // Returns a short usage string suitable for terminal help output.

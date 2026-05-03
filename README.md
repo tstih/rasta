@@ -44,7 +44,8 @@ ctest --test-dir build --output-on-failure
 ## Usage
 
 ```sh
-./bin/rasta --width <width> --height <height> [--bpp <bits_per_pixel>] \
+./bin/rasta [--width <width>] [--height <height>] \
+    [--bpp <bits_per_pixel>] \
     [--framebuffer <path>] [--port <udp_port>] [--scale <window_scale>] \
     [--cursor <on|off>]
 ```
@@ -56,29 +57,44 @@ Example:
     --port 5000 --scale 2 --cursor on
 ```
 
+`rasta` also starts with defaults when no geometry is provided:
+
+- `width = 320`
+- `height = 200`
+- `bits_per_pixel = 1`
+- `framebuffer = /tmp/rasta.framebuffer`
+- `port = 5000`
+- `scale = 4`
+- `cursor = on`
+
 To write something visible into the same shared framebuffer from a
 second process:
 
 ```sh
-./bin/demo1 --width 320 --height 200 --framebuffer /tmp/rasta.fb
+./bin/demo1
 ```
 
 To animate the pattern for a short run:
 
 ```sh
-./bin/demo1 --width 320 --height 200 --framebuffer /tmp/rasta.fb \
-    --frames 60 --delay-ms 80
+./bin/demo1 --frames 60 --delay-ms 80
 ```
 
 To subscribe to keyboard and mouse events, print them to the console,
 and draw a software cursor in the shared framebuffer:
 
 ```sh
-./bin/demo2 --width 320 --height 200 --framebuffer /tmp/rasta.fb \
-    --port 5000
+./bin/demo2
 ```
 
-This sample is intended to be used with `rasta --cursor off`.
+This sample is intended to be used with `rasta --cursor off`. `demo2`
+now sends a subscriber datagram that requests the same default raster
+geometry and framebuffer path before it starts reading input events.
+
+To pair `demo1` or `demo2` with a non-default raster, pass matching
+geometry and framebuffer arguments to the sample. `demo2` will forward
+those values in its initial subscription datagram so `rasta` can
+reconfigure itself on the fly.
 
 Startup creates or resizes the framebuffer file to:
 
@@ -101,6 +117,22 @@ The emulator binds a UDP socket on the configured port. Any client can
 subscribe by sending a datagram to that port. The emulator remembers the
 most recent sender and transmits one fixed-size binary message per input
 event back to that address.
+
+The subscription datagram may be empty, may contain any text, or may
+contain the same option syntax used on the command line:
+
+```text
+--width 640 --height 480 --bpp 1 --framebuffer /tmp/rasta.fb --cursor off
+```
+
+If the datagram begins with `-`, `rasta` parses it as a reconfiguration
+request before sending future input events to that subscriber. Any
+options omitted from the datagram keep their current values. This makes
+it possible to start `rasta` on the default UDP port and let the first
+client choose the raster geometry and framebuffer path at runtime.
+
+Subscriber-driven reconfiguration intentionally does not allow `--port`,
+because the UDP socket is already bound when the datagram arrives.
 
 The message format is:
 
@@ -244,7 +276,8 @@ path.
 ## C11 Input Example
 
 This example subscribes to the UDP input stream and reads the binary
-messages directly with no string parsing.
+messages directly with no string parsing. The first datagram also asks
+`rasta` to use a matching framebuffer configuration.
 
 ```c
 #include <arpa/inet.h>
@@ -297,8 +330,12 @@ int main(void)
         return 1;
     }
 
-    if (sendto(fd, "subscribe", 9, 0, (struct sockaddr *) &addr,
-        sizeof(addr)) < 0) {
+    const char *subscription =
+        "--width 320 --height 200 --bpp 1 "
+        "--framebuffer /tmp/rasta.framebuffer";
+
+    if (sendto(fd, subscription, strlen(subscription), 0,
+        (struct sockaddr *) &addr, sizeof(addr)) < 0) {
         fprintf(stderr, "sendto failed: %s\n", strerror(errno));
         close(fd);
         return 1;
@@ -360,7 +397,9 @@ Compile it like this:
 gcc -std=c11 -Wall -Wextra -pedantic -o read_input read_input.c
 ```
 
-Start `read_input`, then click and type inside the `rasta` window.
+Start `read_input`, then click and type inside the `rasta` window. If
+`rasta` was started with defaults, this first datagram is enough to
+align the raster geometry and framebuffer path with the client.
 
 ## Notes
 
@@ -368,7 +407,10 @@ Start `read_input`, then click and type inside the `rasta` window.
 - The current implementation is single-window and single-subscriber.
 - The renderer uses nearest-neighbor scaling for crisp low-bpp output.
 - Press `+` or `-` in the SDL window to zoom in or out while running.
-- `demo1` can be started after `rasta` to prove the shared-memory
-  display path is working.
-- `demo2` is a plain C11 sample that prints input events and draws a
-  software cursor into the framebuffer.
+- A subscriber datagram can reconfigure width, height, bpp, framebuffer,
+  scale, and cursor settings before input streaming begins.
+- `demo1` defaults to the same startup geometry as `rasta`, so it can
+  be run with no arguments against a default-started emulator.
+- `demo2` is a plain C11 sample that prints input events, draws a
+  software cursor into the framebuffer, and sends an initial
+  reconfiguration datagram when it subscribes.

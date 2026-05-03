@@ -98,6 +98,25 @@ bool test_argument_parsing_default_bpp()
         expect(options.show_cursor, "cursor should default to on");
 }
 
+bool test_argument_parsing_default_dimensions()
+{
+    const char *argv[] = {
+        "rasta",
+    };
+
+    rasta_options options {};
+    std::string error_message;
+
+    const bool ok = parse_arguments(static_cast<int>(std::size(argv)),
+        const_cast<char **>(argv), options, error_message);
+
+    return expect(ok, "default startup options should parse") &&
+        expect(error_message.empty(), "default parse should not error") &&
+        expect(options.width == 320, "default width should be 320") &&
+        expect(options.height == 200, "default height should be 200") &&
+        expect(options.bits_per_pixel == 1, "default bpp should be 1");
+}
+
 bool test_argument_parsing_failure()
 {
     const char *argv[] = {
@@ -120,22 +139,45 @@ bool test_argument_parsing_failure()
             "invalid bpp should report a helpful error");
 }
 
-bool test_argument_parsing_missing_width()
+bool test_argument_string_reconfigure_success()
 {
-    const char *argv[] = {
-        "rasta",
-        "--height",
-        "200",
-    };
+    rasta_options base_options = default_rasta_options();
+    base_options.width = 320;
+    base_options.height = 200;
+    base_options.window_scale = 6;
+    base_options.framebuffer_path = "/tmp/original.fb";
 
-    rasta_options options {};
+    rasta_options options = base_options;
     std::string error_message;
-    const bool ok = parse_arguments(static_cast<int>(std::size(argv)),
-        const_cast<char **>(argv), options, error_message);
+    const bool ok = parse_argument_string(
+        "--width 640 --height 480 --cursor off "
+        "--framebuffer \"/tmp/updated framebuffer.fb\"",
+        base_options, options, error_message);
 
-    return expect(!ok, "missing width should fail") &&
-        expect(error_message == "missing required argument --width",
-            "missing width should report a helpful error");
+    return expect(ok, "subscriber option string should parse") &&
+        expect(error_message.empty(),
+            "subscriber parse should not report an error") &&
+        expect(options.width == 640, "reconfigure width should update") &&
+        expect(options.height == 480, "reconfigure height should update") &&
+        expect(options.window_scale == 6,
+            "unspecified scale should be preserved") &&
+        expect(options.framebuffer_path ==
+            "/tmp/updated framebuffer.fb",
+            "quoted framebuffer path should parse") &&
+        expect(!options.show_cursor, "cursor override should apply");
+}
+
+bool test_argument_string_reconfigure_rejects_port()
+{
+    rasta_options options = default_rasta_options();
+    std::string error_message;
+    const bool ok = parse_argument_string("--port 6000", options, options,
+        error_message);
+
+    return expect(!ok, "subscriber should not be able to change port") &&
+        expect(error_message ==
+            "--port cannot be changed by subscriber datagram",
+            "subscriber port override should report a helpful error");
 }
 
 bool test_argument_parsing_invalid_cursor()
@@ -189,10 +231,16 @@ int main()
     if (!test_argument_parsing_default_bpp()) {
         return EXIT_FAILURE;
     }
+    if (!test_argument_parsing_default_dimensions()) {
+        return EXIT_FAILURE;
+    }
     if (!test_argument_parsing_failure()) {
         return EXIT_FAILURE;
     }
-    if (!test_argument_parsing_missing_width()) {
+    if (!test_argument_string_reconfigure_success()) {
+        return EXIT_FAILURE;
+    }
+    if (!test_argument_string_reconfigure_rejects_port()) {
         return EXIT_FAILURE;
     }
     if (!test_packed_pixel_write_and_decode()) {

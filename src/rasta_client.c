@@ -158,14 +158,20 @@ int rasta_framebuffer_sync(struct rasta_framebuffer *framebuffer)
     return msync(framebuffer->data, framebuffer->size_bytes, MS_ASYNC);
 }
 
-int rasta_input_open(struct rasta_input *input, const char *host, uint16_t port)
+int rasta_input_open_with_subscription(struct rasta_input *input,
+    const char *host, uint16_t port, const char *subscription)
 {
     struct sockaddr_in addr;
+    const char *payload;
+    size_t payload_length;
 
     if (input == NULL || host == NULL || port == 0u) {
         errno = EINVAL;
         return -1;
     }
+
+    payload = subscription != NULL ? subscription : "subscribe";
+    payload_length = strlen(payload);
 
     input->socket_fd = socket(AF_INET, SOCK_DGRAM, 0);
     if (input->socket_fd < 0) {
@@ -182,7 +188,7 @@ int rasta_input_open(struct rasta_input *input, const char *host, uint16_t port)
         return -1;
     }
 
-    if (sendto(input->socket_fd, "subscribe", 9, 0,
+    if (sendto(input->socket_fd, payload, payload_length, 0,
         (struct sockaddr *) &addr, sizeof(addr)) < 0) {
         close(input->socket_fd);
         input->socket_fd = -1;
@@ -190,6 +196,11 @@ int rasta_input_open(struct rasta_input *input, const char *host, uint16_t port)
     }
 
     return 0;
+}
+
+int rasta_input_open(struct rasta_input *input, const char *host, uint16_t port)
+{
+    return rasta_input_open_with_subscription(input, host, port, "subscribe");
 }
 
 void rasta_input_close(struct rasta_input *input)

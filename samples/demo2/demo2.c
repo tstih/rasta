@@ -106,19 +106,17 @@ static bool parse_u16(const char *text, uint16_t *value)
 
 static void print_usage(const char *program_name)
 {
-    printf("Usage: %s --width <width> --height <height> "
+    printf("Usage: %s [--width <width>] [--height <height>] "
            "[--bpp <bits_per_pixel>] [--framebuffer <path>] "
            "[--host <host>] [--port <port>]\n", program_name);
 }
 
 static bool parse_arguments(int argc, char **argv, struct options *options)
 {
-    bool has_width = false;
-    bool has_height = false;
     int index;
 
-    options->width = 0;
-    options->height = 0;
+    options->width = 320;
+    options->height = 200;
     options->bits_per_pixel = 1;
     options->framebuffer_path = "/tmp/rasta.framebuffer";
     options->host = "127.0.0.1";
@@ -131,14 +129,12 @@ static bool parse_arguments(int argc, char **argv, struct options *options)
                 fprintf(stderr, "error: invalid --width\n");
                 return false;
             }
-            has_width = true;
         } else if (strcmp(argv[index], "--height") == 0) {
             if (index + 1 >= argc || !parse_u32(argv[++index], &options->height)
                 || options->height == 0u) {
                 fprintf(stderr, "error: invalid --height\n");
                 return false;
             }
-            has_height = true;
         } else if (strcmp(argv[index], "--bpp") == 0) {
             if (index + 1 >= argc ||
                 !parse_u32(argv[++index], &options->bits_per_pixel) ||
@@ -173,12 +169,21 @@ static bool parse_arguments(int argc, char **argv, struct options *options)
         }
     }
 
-    if (!has_width || !has_height) {
-        fprintf(stderr, "error: --width and --height are required\n");
-        return false;
+    return true;
+}
+
+static int build_subscription(char *buffer, size_t size,
+    const struct options *options)
+{
+    if (buffer == NULL || size == 0u || options == NULL) {
+        errno = EINVAL;
+        return -1;
     }
 
-    return true;
+    return snprintf(buffer, size,
+        "--width %u --height %u --bpp %u --framebuffer %s",
+        (unsigned) options->width, (unsigned) options->height,
+        (unsigned) options->bits_per_pixel, options->framebuffer_path);
 }
 
 static void erase_cursor(struct rasta_framebuffer *framebuffer,
@@ -310,6 +315,8 @@ int main(int argc, char **argv)
     struct rasta_framebuffer framebuffer;
     struct rasta_input input;
     struct rasta_input_message message;
+    char subscription[512];
+    int subscription_length;
 
     if (!parse_arguments(argc, argv, &options)) {
         print_usage(argv[0]);
@@ -324,21 +331,31 @@ int main(int argc, char **argv)
     signal(SIGINT, on_signal);
     signal(SIGTERM, on_signal);
 
-    if (rasta_framebuffer_open(&framebuffer, options.width, options.height,
-        options.bits_per_pixel, options.framebuffer_path) != 0) {
-        fprintf(stderr, "rasta_framebuffer_open failed: %s\n",
+    subscription_length = build_subscription(subscription,
+        sizeof(subscription), &options);
+    if (subscription_length < 0 ||
+        (size_t) subscription_length >= sizeof(subscription)) {
+        fprintf(stderr, "unable to build subscription datagram\n");
+        return 1;
+    }
+
+    if (rasta_input_open_with_subscription(&input, options.host, options.port,
+        subscription) != 0) {
+        fprintf(stderr, "rasta_input_open_with_subscription failed: %s\n",
             strerror(errno));
         return 1;
     }
 
-    if (rasta_input_open(&input, options.host, options.port) != 0) {
-        fprintf(stderr, "rasta_input_open failed: %s\n", strerror(errno));
-        rasta_framebuffer_close(&framebuffer);
+    if (rasta_framebuffer_open(&framebuffer, options.width, options.height,
+        options.bits_per_pixel, options.framebuffer_path) != 0) {
+        fprintf(stderr, "rasta_framebuffer_open failed: %s\n",
+            strerror(errno));
+        rasta_input_close(&input);
         return 1;
     }
 
-    printf("demo2 subscribed to %s:%u using framebuffer %s\n", options.host,
-        (unsigned) options.port, options.framebuffer_path);
+    printf("demo2 subscribed to %s:%u with '%s'\n", options.host,
+        (unsigned) options.port, subscription);
     fflush(stdout);
 
     while (!stop_requested) {

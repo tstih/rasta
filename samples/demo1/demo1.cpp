@@ -10,12 +10,14 @@
 #include "rasta_options.h"
 
 #include <chrono>
+#include <cstdlib>
 #include <cstdint>
 #include <cstring>
 #include <exception>
 #include <iostream>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace {
 
@@ -75,125 +77,71 @@ void write_demo_frames(const rasta_options &options, std::uint32_t frames,
     }
 }
 
-bool parse_u32(const char *text, std::uint32_t &value)
-{
-    char *end = nullptr;
-    const unsigned long parsed = std::strtoul(text, &end, 10);
-    if (end == text || *end != '\0') {
-        return false;
-    }
-    value = static_cast<std::uint32_t>(parsed);
-    return true;
-}
-
 bool parse_demo_arguments(int argc, char **argv, rasta_options &options,
     std::uint32_t &frames, std::uint32_t &delay_ms, std::string &error_message)
 {
-    options = {
-        .width = 0,
-        .height = 0,
-        .bits_per_pixel = 1,
-        .framebuffer_path = "/tmp/rasta.framebuffer",
-        .input_port = 5000,
-        .window_scale = 4,
-        .show_cursor = true,
-    };
+    options = default_rasta_options();
     frames = 1;
     delay_ms = 120;
-
-    bool has_width = false;
-    bool has_height = false;
+    std::vector<char *> forwarded_arguments;
+    forwarded_arguments.reserve(static_cast<std::size_t>(argc));
+    forwarded_arguments.push_back(argv[0]);
 
     for (int index = 1; index < argc; ++index) {
         const std::string argument = argv[index];
-        if (argument == "--width") {
-            if (index + 1 >= argc) {
-                error_message = "missing value for --width";
-                return false;
-            }
-            if (!parse_u32(argv[++index], options.width) || options.width == 0U) {
-                error_message = "width must be a positive integer";
-                return false;
-            }
-            has_width = true;
-        } else if (argument == "--height") {
-            if (index + 1 >= argc) {
-                error_message = "missing value for --height";
-                return false;
-            }
-            if (!parse_u32(argv[++index], options.height) ||
-                options.height == 0U) {
-                error_message = "height must be a positive integer";
-                return false;
-            }
-            has_height = true;
-        } else if (argument == "--bpp") {
-            if (index + 1 >= argc) {
-                error_message = "missing value for --bpp";
-                return false;
-            }
-            if (!parse_u32(argv[++index], options.bits_per_pixel)) {
-                error_message = "bits_per_pixel must be a positive integer";
-                return false;
-            }
-            if (options.bits_per_pixel < 1U || options.bits_per_pixel > 3U) {
-                error_message = "bits_per_pixel must be 1, 2, or 3";
-                return false;
-            }
-        } else if (argument == "--framebuffer") {
-            if (index + 1 >= argc) {
-                error_message = "missing value for --framebuffer";
-                return false;
-            }
-            options.framebuffer_path = argv[++index];
-        } else if (argument == "--frames") {
+        if (argument == "--frames") {
             if (index + 1 >= argc) {
                 error_message = "missing value for --frames";
                 return false;
             }
-            if (!parse_u32(argv[++index], frames) || frames == 0U) {
+            std::uint32_t parsed = 0;
+            char *end = nullptr;
+            const unsigned long value = std::strtoul(argv[++index], &end, 10);
+            if (end == argv[index] || *end != '\0') {
                 error_message = "frames must be a positive integer";
                 return false;
             }
+            parsed = static_cast<std::uint32_t>(value);
+            if (parsed == 0U) {
+                error_message = "frames must be a positive integer";
+                return false;
+            }
+            frames = parsed;
         } else if (argument == "--delay-ms") {
             if (index + 1 >= argc) {
                 error_message = "missing value for --delay-ms";
                 return false;
             }
-            if (!parse_u32(argv[++index], delay_ms)) {
+            std::uint32_t parsed = 0;
+            char *end = nullptr;
+            const unsigned long value = std::strtoul(argv[++index], &end, 10);
+            if (end == argv[index] || *end != '\0') {
                 error_message = "delay_ms must be a non-negative integer";
                 return false;
             }
-        } else if (argument == "--port" || argument == "--scale") {
-            if (index + 1 >= argc) {
-                error_message = "missing value for " + argument;
-                return false;
-            }
-            ++index;
+            parsed = static_cast<std::uint32_t>(value);
+            delay_ms = parsed;
         } else if (argument == "--help" || argument == "-h") {
             return false;
         } else {
-            error_message = "unknown option: " + argument;
-            return false;
+            forwarded_arguments.push_back(argv[index]);
+            if ((argument == "--width" || argument == "--height" ||
+                 argument == "--bpp" || argument == "--framebuffer" ||
+                 argument == "--port" || argument == "--scale" ||
+                 argument == "--cursor") && index + 1 < argc) {
+                forwarded_arguments.push_back(argv[++index]);
+            }
         }
     }
 
-    if (!has_width) {
-        error_message = "missing required argument --width";
-        return false;
-    }
-    if (!has_height) {
-        error_message = "missing required argument --height";
-        return false;
-    }
-
-    return true;
+    return parse_arguments(static_cast<int>(forwarded_arguments.size()),
+        forwarded_arguments.data(), options, error_message);
 }
 
 std::string build_demo_usage(const char *program_name)
 {
     return std::string("Usage: ") + program_name +
-        " --width <width> --height <height> [--bpp <bits_per_pixel>]" +
+        " [--width <width>] [--height <height>] [--bpp <bits_per_pixel>]" +
         " [--framebuffer <path>] [--frames <count>] [--delay-ms <ms>]";
 }
 
@@ -216,9 +164,11 @@ int main(int argc, char **argv)
 
     if (!parse_demo_arguments(argc, argv, options, frames, delay_ms,
         error_message)) {
-        std::cerr << "error: " << error_message << '\n';
+        if (!error_message.empty()) {
+            std::cerr << "error: " << error_message << '\n';
+        }
         std::cerr << build_demo_usage(argv[0]) << '\n';
-        return 1;
+        return error_message.empty() ? 0 : 1;
     }
 
     try {

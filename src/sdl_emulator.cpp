@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <iostream>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -81,6 +82,18 @@ std::string build_window_title(const rasta_options &options,
     return title.str();
 }
 
+SDL_Texture *create_texture(SDL_Renderer *renderer,
+    const rasta_options &options)
+{
+    SDL_Texture *texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGB24,
+        SDL_TEXTUREACCESS_STREAMING, static_cast<int>(options.width),
+        static_cast<int>(options.height));
+    if (texture == nullptr) {
+        throw make_sdl_error("unable to create SDL texture");
+    }
+    return texture;
+}
+
 SDL_Rect build_destination_rect(SDL_Window *window)
 {
     int width = 0;
@@ -129,6 +142,47 @@ void normalize_mouse_event_to_raster(SDL_Window *window,
     }
 }
 
+bool datagram_looks_like_options(const std::string &payload)
+{
+    const std::size_t first =
+        payload.find_first_not_of(" \f\n\r\t\v");
+    return first != std::string::npos && payload[first] == '-';
+}
+
+void apply_runtime_options(SDL_Window *window, const rasta_options &options,
+    std::uint32_t zoom)
+{
+    SDL_ShowCursor(options.show_cursor ? SDL_ENABLE : SDL_DISABLE);
+    SDL_SetWindowMinimumSize(window, static_cast<int>(options.width),
+        static_cast<int>(options.height));
+    apply_zoom(window, options.width, options.height, zoom);
+
+    const std::string title = build_window_title(options, zoom);
+    SDL_SetWindowTitle(window, title.c_str());
+}
+
+void reconfigure_emulator(const rasta_options &requested_options,
+    rasta_options &active_options, framebuffer_file &framebuffer,
+    SDL_Window *window, SDL_Renderer *renderer, SDL_Texture *&texture,
+    std::uint32_t &zoom, int &pitch)
+{
+    const std::size_t framebuffer_size = calculate_framebuffer_size(
+        requested_options.width, requested_options.height,
+        requested_options.bits_per_pixel);
+    framebuffer_file new_framebuffer(requested_options.framebuffer_path,
+        framebuffer_size);
+    SDL_Texture *new_texture = create_texture(renderer, requested_options);
+
+    framebuffer = std::move(new_framebuffer);
+    SDL_DestroyTexture(texture);
+    texture = new_texture;
+
+    active_options = requested_options;
+    zoom = clamp_zoom(active_options.window_scale);
+    pitch = static_cast<int>(active_options.width * 3U);
+    apply_runtime_options(window, active_options, zoom);
+}
+
 } // namespace
 
 void run_sdl_emulator(const rasta_options &options,
@@ -136,15 +190,16 @@ void run_sdl_emulator(const rasta_options &options,
 {
     sdl_guard sdl;
 
-    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0");
-    SDL_ShowCursor(options.show_cursor ? SDL_ENABLE : SDL_DISABLE);
+    rasta_options active_options = options;
 
-    std::uint32_t zoom = clamp_zoom(options.window_scale);
-    std::string window_title = build_window_title(options, zoom);
+    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0");
+
+    std::uint32_t zoom = clamp_zoom(active_options.window_scale);
     const int window_width = static_cast<int>(
-        static_cast<std::uint64_t>(options.width) * zoom);
+        static_cast<std::uint64_t>(active_options.width) * zoom);
     const int window_height = static_cast<int>(
-        static_cast<std::uint64_t>(options.height) * zoom);
+        static_cast<std::uint64_t>(active_options.height) * zoom);
+    const std::string window_title = build_window_title(active_options, zoom);
 
     SDL_Window *window = SDL_CreateWindow(window_title.c_str(),
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, window_width,
@@ -163,25 +218,47 @@ void run_sdl_emulator(const rasta_options &options,
         throw make_sdl_error("unable to create SDL renderer");
     }
 
-    SDL_Texture *texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGB24,
-        SDL_TEXTUREACCESS_STREAMING, static_cast<int>(options.width),
-        static_cast<int>(options.height));
-    if (texture == nullptr) {
+    SDL_Texture *texture = nullptr;
+    try {
+        texture = create_texture(renderer, active_options);
+    } catch (const std::exception &) {
         SDL_DestroyRenderer(renderer);
         SDL_DestroyWindow(window);
-        throw make_sdl_error("unable to create SDL texture");
+        throw;
     }
 
-    SDL_SetWindowMinimumSize(window, static_cast<int>(options.width),
-        static_cast<int>(options.height));
-    apply_zoom(window, options.width, options.height, zoom);
+    apply_runtime_options(window, active_options, zoom);
 
     std::vector<std::uint8_t> rgb24_buffer;
-    const int pitch = static_cast<int>(options.width * 3U);
+    int pitch = static_cast<int>(active_options.width * 3U);
     bool running = true;
 
     while (running) {
-        broadcaster.poll_subscribers();
+        std::string subscriber_payload;
+        if (broadcaster.poll_subscribers(subscriber_payload) &&
+            datagram_looks_like_options(subscriber_payload)) {
+            rasta_options requested_options = active_options;
+            requested_options.window_scale = zoom;
+
+            std::string error_message;
+            if (!parse_argument_string(subscriber_payload, requested_options,
+                requested_options, error_message)) {
+                std::cerr << "warning: ignoring subscriber reconfigure '"
+                          << subscriber_payload << "': " << error_message
+                          << '\n';
+            } else {
+                reconfigure_emulator(requested_options, active_options,
+                    framebuffer, window, renderer, texture, zoom, pitch);
+                std::cout << "reconfigured framebuffer="
+                          << active_options.framebuffer_path
+                          << " size=" << framebuffer.size_bytes()
+                          << " bytes udp_port=" << broadcaster.port()
+                          << " raster=" << active_options.width
+                          << "x" << active_options.height
+                          << " bpp=" << active_options.bits_per_pixel
+                          << " scale=" << zoom << '\n';
+            }
+        }
 
         SDL_Event event {};
         while (SDL_PollEvent(&event) != 0) {
@@ -191,24 +268,22 @@ void run_sdl_emulator(const rasta_options &options,
             } else if (event.type == SDL_KEYDOWN && event.key.repeat == 0) {
                 if (is_zoom_in_key(event.key.keysym.sym)) {
                     zoom = clamp_zoom(zoom + 1U);
-                    apply_zoom(window, options.width, options.height, zoom);
-                    window_title = build_window_title(options, zoom);
-                    SDL_SetWindowTitle(window, window_title.c_str());
+                    apply_runtime_options(window, active_options, zoom);
                 } else if (is_zoom_out_key(event.key.keysym.sym)) {
                     if (zoom > 1U) {
                         zoom = clamp_zoom(zoom - 1U);
                     }
-                    apply_zoom(window, options.width, options.height, zoom);
-                    window_title = build_window_title(options, zoom);
-                    SDL_SetWindowTitle(window, window_title.c_str());
+                    apply_runtime_options(window, active_options, zoom);
                 }
             }
-            normalize_mouse_event_to_raster(window, options, broadcast_event);
+            normalize_mouse_event_to_raster(window, active_options,
+                broadcast_event);
             broadcaster.broadcast_event(broadcast_event);
         }
 
         decode_raster_to_rgb24(framebuffer.data(), framebuffer.size_bytes(),
-            options.width, options.height, options.bits_per_pixel,
+            active_options.width, active_options.height,
+            active_options.bits_per_pixel,
             rgb24_buffer);
 
         if (SDL_UpdateTexture(texture, nullptr, rgb24_buffer.data(),

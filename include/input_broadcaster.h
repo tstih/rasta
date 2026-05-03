@@ -25,7 +25,9 @@ public:
     input_broadcaster &operator=(const input_broadcaster &) = delete;
 
     // Polls the UDP socket for subscriber registration datagrams.
-    void poll_subscribers();
+    // Returns true when at least one datagram was received and stores the
+    // most recent payload into latest_payload.
+    bool poll_subscribers(std::string &latest_payload);
 
     // Sends one SDL input event to the most recent subscriber, if any.
     void broadcast_event(const SDL_Event &event);

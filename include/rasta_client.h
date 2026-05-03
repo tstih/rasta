@@ -47,6 +47,9 @@ int rasta_framebuffer_sync(struct rasta_framebuffer *framebuffer);
 int rasta_input_open(struct rasta_input *input, const char *host,
     uint16_t port);
 
+int rasta_input_open_with_subscription(struct rasta_input *input,
+    const char *host, uint16_t port, const char *subscription);
+
 void rasta_input_close(struct rasta_input *input);
 
 int rasta_input_receive(struct rasta_input *input,

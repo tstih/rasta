@@ -4,6 +4,15 @@ The emulator accepts UDP subscription datagrams on the configured input
 port. The most recent sender becomes the active subscriber for future
 keyboard and mouse event packets.
 
+If a subscription datagram begins with `-`, the payload is parsed with
+the same option syntax as the command line before the subscriber becomes
+active. This allows the client to reconfigure width, height, bpp,
+framebuffer path, scale, and cursor visibility at runtime. Omitted
+fields keep their current values.
+
+Subscriber datagrams cannot change `--port`, because the socket is
+already bound when the reconfiguration request is received.
+
 Each event is sent as one fixed-size binary message:
 
 ```c
