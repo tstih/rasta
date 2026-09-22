@@ -19,6 +19,7 @@ struct rasta_options {
     std::uint16_t input_port;
     std::uint32_t window_scale;
     bool show_cursor;
+    bool inverse_pixels;
 };
 
 // Returns the default emulator configuration used at startup and as the
@@ -28,8 +29,8 @@ rasta_options default_rasta_options();
 // Parses command-line arguments into emulator options.
 // All settings are optional and fall back to default_rasta_options().
 // Optional flags: --width <n>, --height <n>, --bpp <n>,
-// --framebuffer <path>, --port <udp_port>, --scale <n>, and
-// --cursor <on|off>.
+// --framebuffer <path>, --port <udp_port>, --scale <n>,
+// --cursor <on|off>, and --inverse <on|off>.
 // Returns true on success and false when arguments are invalid.
 bool parse_arguments(int argc, char **argv, rasta_options &options,
     std::string &error_message);

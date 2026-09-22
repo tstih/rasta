@@ -77,6 +77,7 @@ std::string build_window_title(const rasta_options &options,
           << " " << options.bits_per_pixel << "bpp"
           << " scale=" << zoom
           << " cursor=" << (options.show_cursor ? "on" : "off")
+          << " inverse=" << (options.inverse_pixels ? "on" : "off")
           << " port=" << options.input_port
           << " fb=" << options.framebuffer_path;
     return title.str();
@@ -85,11 +86,18 @@ std::string build_window_title(const rasta_options &options,
 SDL_Texture *create_texture(SDL_Renderer *renderer,
     const rasta_options &options)
 {
-    SDL_Texture *texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGB24,
+    const Uint32 pixel_format = options.bits_per_pixel == 32U
+        ? SDL_PIXELFORMAT_BGRA32 : SDL_PIXELFORMAT_RGB24;
+    SDL_Texture *texture = SDL_CreateTexture(renderer, pixel_format,
         SDL_TEXTUREACCESS_STREAMING, static_cast<int>(options.width),
         static_cast<int>(options.height));
     if (texture == nullptr) {
         throw make_sdl_error("unable to create SDL texture");
+    }
+    if (options.bits_per_pixel == 32U &&
+        SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_BLEND) != 0) {
+        SDL_DestroyTexture(texture);
+        throw make_sdl_error("unable to enable alpha blending");
     }
     return texture;
 }
@@ -179,7 +187,8 @@ void reconfigure_emulator(const rasta_options &requested_options,
 
     active_options = requested_options;
     zoom = clamp_zoom(active_options.window_scale);
-    pitch = static_cast<int>(active_options.width * 3U);
+    pitch = static_cast<int>(active_options.width *
+        (active_options.bits_per_pixel == 32U ? 4U : 3U));
     apply_runtime_options(window, active_options, zoom);
 }
 
@@ -229,8 +238,9 @@ void run_sdl_emulator(const rasta_options &options,
 
     apply_runtime_options(window, active_options, zoom);
 
-    std::vector<std::uint8_t> rgb24_buffer;
-    int pitch = static_cast<int>(active_options.width * 3U);
+    std::vector<std::uint8_t> pixel_buffer;
+    int pitch = static_cast<int>(active_options.width *
+        (active_options.bits_per_pixel == 32U ? 4U : 3U));
     bool running = true;
 
     while (running) {
@@ -256,6 +266,8 @@ void run_sdl_emulator(const rasta_options &options,
                           << " raster=" << active_options.width
                           << "x" << active_options.height
                           << " bpp=" << active_options.bits_per_pixel
+                          << " inverse="
+                          << (active_options.inverse_pixels ? "on" : "off")
                           << " scale=" << zoom << '\n';
             }
         }
@@ -281,12 +293,18 @@ void run_sdl_emulator(const rasta_options &options,
             broadcaster.broadcast_event(broadcast_event);
         }
 
-        decode_raster_to_rgb24(framebuffer.data(), framebuffer.size_bytes(),
-            active_options.width, active_options.height,
-            active_options.bits_per_pixel,
-            rgb24_buffer);
+        if (active_options.bits_per_pixel == 32U) {
+            decode_raster_to_bgra32(framebuffer.data(), framebuffer.size_bytes(),
+                active_options.width, active_options.height,
+                active_options.inverse_pixels, pixel_buffer);
+        } else {
+            decode_raster_to_rgb24(framebuffer.data(), framebuffer.size_bytes(),
+                active_options.width, active_options.height,
+                active_options.bits_per_pixel, active_options.inverse_pixels,
+                pixel_buffer);
+        }
 
-        if (SDL_UpdateTexture(texture, nullptr, rgb24_buffer.data(),
+        if (SDL_UpdateTexture(texture, nullptr, pixel_buffer.data(),
             pitch) != 0) {
             SDL_DestroyTexture(texture);
             SDL_DestroyRenderer(renderer);

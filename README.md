@@ -9,6 +9,7 @@ and broadcasts keyboard and mouse events over UDP datagrams.
 - Packed linear framebuffer stored in an mmap-backed file.
 - Sub-byte pixel formats with `1`, `2`, or `3` bits per pixel.
 - `3` bits per pixel maps to binary `RGB` with no alpha channel.
+- CEF-compatible `32` bpp `BGRA` with per-pixel alpha blending.
 - SDL2 window that redraws the mapped framebuffer as fast as possible.
 - Runtime zoom with `+` and `-`.
 - UDP input event broadcast to the most recent client that subscribes.
@@ -47,14 +48,14 @@ ctest --test-dir build --output-on-failure
 ./bin/rasta [--width <width>] [--height <height>] \
     [--bpp <bits_per_pixel>] \
     [--framebuffer <path>] [--port <udp_port>] [--scale <window_scale>] \
-    [--cursor <on|off>]
+    [--cursor <on|off>] [--inverse <on|off>]
 ```
 
 Example:
 
 ```sh
 ./bin/rasta --width 320 --height 200 --framebuffer /tmp/rasta.fb \
-    --port 5000 --scale 2 --cursor on
+    --port 5000 --scale 2 --cursor on --inverse off
 ```
 
 `rasta` also starts with defaults when no geometry is provided:
@@ -66,6 +67,7 @@ Example:
 - `port = 5000`
 - `scale = 4`
 - `cursor = on`
+- `inverse = off`
 
 To write something visible into the same shared framebuffer from a
 second process:
@@ -109,7 +111,12 @@ If `bits_per_pixel` is omitted, it defaults to `1`.
 - `1` bpp: monochrome, `0` = black and `1` = white
 - `2` bpp: grayscale, `00` = black through `11` = white
 - `3` bpp: binary RGB, bits map to `R`, `G`, and `B`
+- `32` bpp: CEF-compatible tightly packed `B`, `G`, `R`, `A` bytes
+- `32` bpp uses an SDL alpha-blended texture; `--inverse on` inverts only
+  the color channels and preserves alpha.
 - `--cursor off`: hide the mouse cursor inside the `rasta` window
+- `--inverse on`: invert packed pixel values before display for
+  white-screen, dark-pixel monitors
 
 ## UDP Input Subscription
 
@@ -122,7 +129,7 @@ The subscription datagram may be empty, may contain any text, or may
 contain the same option syntax used on the command line:
 
 ```text
---width 640 --height 480 --bpp 1 --framebuffer /tmp/rasta.fb --cursor off
+--width 640 --height 480 --bpp 1 --framebuffer /tmp/rasta.fb --cursor off --inverse on
 ```
 
 If the datagram begins with `-`, `rasta` parses it as a reconfiguration
@@ -408,7 +415,7 @@ align the raster geometry and framebuffer path with the client.
 - The renderer uses nearest-neighbor scaling for crisp low-bpp output.
 - Press `+` or `-` in the SDL window to zoom in or out while running.
 - A subscriber datagram can reconfigure width, height, bpp, framebuffer,
-  scale, and cursor settings before input streaming begins.
+  scale, cursor, and inverse settings before input streaming begins.
 - `demo1` defaults to the same startup geometry as `rasta`, so it can
   be run with no arguments against a default-started emulator.
 - `demo2` is a plain C11 sample that prints input events, draws a

@@ -28,6 +28,7 @@ struct options {
     const char *framebuffer_path;
     const char *host;
     uint16_t port;
+    bool inverse_pixels;
 };
 
 struct cursor_state {
@@ -80,6 +81,9 @@ static void on_signal(int signum)
 
 static uint32_t max_pixel_value(uint32_t bits_per_pixel)
 {
+    if (bits_per_pixel == 32u) {
+        return UINT32_MAX;
+    }
     return (1u << bits_per_pixel) - 1u;
 }
 
@@ -108,7 +112,8 @@ static void print_usage(const char *program_name)
 {
     printf("Usage: %s [--width <width>] [--height <height>] "
            "[--bpp <bits_per_pixel>] [--framebuffer <path>] "
-           "[--host <host>] [--port <port>]\n", program_name);
+           "[--host <host>] [--port <port>] [--inverse <on|off>]\n",
+        program_name);
 }
 
 static bool parse_arguments(int argc, char **argv, struct options *options)
@@ -121,6 +126,7 @@ static bool parse_arguments(int argc, char **argv, struct options *options)
     options->framebuffer_path = "/tmp/rasta.framebuffer";
     options->host = "127.0.0.1";
     options->port = 5000;
+    options->inverse_pixels = false;
 
     for (index = 1; index < argc; ++index) {
         if (strcmp(argv[index], "--width") == 0) {
@@ -138,7 +144,10 @@ static bool parse_arguments(int argc, char **argv, struct options *options)
         } else if (strcmp(argv[index], "--bpp") == 0) {
             if (index + 1 >= argc ||
                 !parse_u32(argv[++index], &options->bits_per_pixel) ||
-                options->bits_per_pixel < 1u || options->bits_per_pixel > 3u) {
+                (options->bits_per_pixel != 1u &&
+                 options->bits_per_pixel != 2u &&
+                 options->bits_per_pixel != 3u &&
+                 options->bits_per_pixel != 32u)) {
                 fprintf(stderr, "error: invalid --bpp\n");
                 return false;
             }
@@ -158,6 +167,20 @@ static bool parse_arguments(int argc, char **argv, struct options *options)
             if (index + 1 >= argc || !parse_u16(argv[++index], &options->port)
                 || options->port == 0u) {
                 fprintf(stderr, "error: invalid --port\n");
+                return false;
+            }
+        } else if (strcmp(argv[index], "--inverse") == 0) {
+            if (index + 1 >= argc) {
+                fprintf(stderr, "error: missing --inverse value\n");
+                return false;
+            }
+            ++index;
+            if (strcmp(argv[index], "on") == 0) {
+                options->inverse_pixels = true;
+            } else if (strcmp(argv[index], "off") == 0) {
+                options->inverse_pixels = false;
+            } else {
+                fprintf(stderr, "error: invalid --inverse\n");
                 return false;
             }
         } else if (strcmp(argv[index], "--help") == 0 ||
@@ -181,9 +204,10 @@ static int build_subscription(char *buffer, size_t size,
     }
 
     return snprintf(buffer, size,
-        "--width %u --height %u --bpp %u --framebuffer %s",
+        "--width %u --height %u --bpp %u --framebuffer %s --inverse %s",
         (unsigned) options->width, (unsigned) options->height,
-        (unsigned) options->bits_per_pixel, options->framebuffer_path);
+        (unsigned) options->bits_per_pixel, options->framebuffer_path,
+        options->inverse_pixels ? "on" : "off");
 }
 
 static void erase_cursor(struct rasta_framebuffer *framebuffer,

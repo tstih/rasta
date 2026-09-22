@@ -33,8 +33,9 @@ int rasta_framebuffer_open(struct rasta_framebuffer *framebuffer,
     uint32_t width, uint32_t height, uint32_t bits_per_pixel,
     const char *path)
 {
-    if (framebuffer == NULL || path == NULL || bits_per_pixel < 1u ||
-        bits_per_pixel > 3u) {
+    if (framebuffer == NULL || path == NULL ||
+        (bits_per_pixel != 1u && bits_per_pixel != 2u &&
+         bits_per_pixel != 3u && bits_per_pixel != 32u)) {
         errno = EINVAL;
         return -1;
     }

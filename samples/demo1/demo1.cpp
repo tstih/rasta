@@ -27,7 +27,8 @@ void fill_demo_pattern(std::uint8_t *data, std::size_t size_bytes,
 {
     std::memset(data, 0, size_bytes);
 
-    const std::uint32_t max_value = (1U << bits_per_pixel) - 1U;
+    const std::uint32_t max_value = bits_per_pixel == 32U
+        ? 0xffffffffU : (1U << bits_per_pixel) - 1U;
     const std::uint32_t cell_width = width >= 32U ? width / 8U : 4U;
     const std::uint32_t cell_height = height >= 32U ? height / 8U : 4U;
 
@@ -35,7 +36,13 @@ void fill_demo_pattern(std::uint8_t *data, std::size_t size_bytes,
         for (std::uint32_t x = 0; x < width; ++x) {
             std::uint32_t value = 0;
 
-            if (bits_per_pixel == 1U) {
+            if (bits_per_pixel == 32U) {
+                const std::uint32_t red = (x + phase) & 0xffU;
+                const std::uint32_t green = (y + phase) & 0xffU;
+                const std::uint32_t blue = (x + y + phase) & 0xffU;
+                value = (blue << 24U) | (green << 16U) |
+                    (red << 8U) | 0xffU;
+            } else if (bits_per_pixel == 1U) {
                 const std::uint32_t checker =
                     ((x / cell_width) + (y / cell_height) + phase) % 2U;
                 value = checker;
@@ -128,7 +135,8 @@ bool parse_demo_arguments(int argc, char **argv, rasta_options &options,
             if ((argument == "--width" || argument == "--height" ||
                  argument == "--bpp" || argument == "--framebuffer" ||
                  argument == "--port" || argument == "--scale" ||
-                 argument == "--cursor") && index + 1 < argc) {
+                 argument == "--cursor" || argument == "--inverse") &&
+                index + 1 < argc) {
                 forwarded_arguments.push_back(argv[++index]);
             }
         }
@@ -142,7 +150,8 @@ std::string build_demo_usage(const char *program_name)
 {
     return std::string("Usage: ") + program_name +
         " [--width <width>] [--height <height>] [--bpp <bits_per_pixel>]" +
-        " [--framebuffer <path>] [--frames <count>] [--delay-ms <ms>]";
+        " [--framebuffer <path>] [--inverse <on|off>]" +
+        " [--frames <count>] [--delay-ms <ms>]";
 }
 
 } // namespace

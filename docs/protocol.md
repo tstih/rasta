@@ -7,11 +7,16 @@ keyboard and mouse event packets.
 If a subscription datagram begins with `-`, the payload is parsed with
 the same option syntax as the command line before the subscriber becomes
 active. This allows the client to reconfigure width, height, bpp,
-framebuffer path, scale, and cursor visibility at runtime. Omitted
-fields keep their current values.
+framebuffer path, scale, cursor visibility, and inverse display at
+runtime. Omitted fields keep their current values.
 
 Subscriber datagrams cannot change `--port`, because the socket is
 already bound when the reconfiguration request is received.
+
+The framebuffer supports `1`, `2`, `3`, and `32` bits per pixel. The `32`
+bpp mode is intended for CEF off-screen rendering: each pixel is four tightly
+packed bytes in `B`, `G`, `R`, `A` order, with the first pixel at the upper
+left. Alpha is passed to SDL2 for per-pixel blending.
 
 Each event is sent as one fixed-size binary message:
 

@@ -56,6 +56,19 @@ bool parse_cursor_mode(const std::string &text, bool &show_cursor)
     return false;
 }
 
+bool parse_inverse_mode(const std::string &text, bool &inverse_pixels)
+{
+    if (text == "on") {
+        inverse_pixels = true;
+        return true;
+    }
+    if (text == "off") {
+        inverse_pixels = false;
+        return true;
+    }
+    return false;
+}
+
 bool tokenize_argument_string(const std::string &text,
     std::vector<std::string> &tokens, std::string &error_message)
 {
@@ -163,8 +176,10 @@ bool parse_option_tokens(const std::vector<std::string> &tokens,
                 error_message = "bits_per_pixel must be a positive integer";
                 return false;
             }
-            if (options.bits_per_pixel < 1U || options.bits_per_pixel > 3U) {
-                error_message = "bits_per_pixel must be 1, 2, or 3";
+            if (options.bits_per_pixel != 1U && options.bits_per_pixel != 2U &&
+                options.bits_per_pixel != 3U &&
+                options.bits_per_pixel != 32U) {
+                error_message = "bits_per_pixel must be 1, 2, 3, or 32";
                 return false;
             }
         } else if (argument == "--framebuffer") {
@@ -206,6 +221,16 @@ bool parse_option_tokens(const std::vector<std::string> &tokens,
                 error_message = "cursor must be 'on' or 'off'";
                 return false;
             }
+        } else if (argument == "--inverse") {
+            if (index + 1 >= tokens.size()) {
+                error_message = "missing value for --inverse";
+                return false;
+            }
+            if (!parse_inverse_mode(tokens[++index],
+                options.inverse_pixels)) {
+                error_message = "inverse must be 'on' or 'off'";
+                return false;
+            }
         } else {
             error_message = "unknown option: " + argument;
             return false;
@@ -227,6 +252,7 @@ rasta_options default_rasta_options()
         .input_port = 5000,
         .window_scale = 4,
         .show_cursor = true,
+        .inverse_pixels = false,
     };
 }
 
@@ -263,6 +289,7 @@ std::string build_usage(const char *program_name)
           << " [--width <width>] [--height <height>]"
           << " [--bpp <bits_per_pixel>]"
           << " [--framebuffer <path>] [--port <udp_port>]"
-          << " [--scale <window_scale>] [--cursor <on|off>]";
+          << " [--scale <window_scale>] [--cursor <on|off>]"
+          << " [--inverse <on|off>]";
     return usage.str();
 }
