@@ -14,6 +14,9 @@
 
 class framebuffer_file {
 public:
+    // Opens or creates the file and resizes it to the requested byte count.
+    // Existing bytes in the retained range survive; added bytes are zeroed.
+    // Writers must coordinate actual size changes with their mappings.
     framebuffer_file(const std::string &path, std::size_t size_bytes);
     ~framebuffer_file();
 

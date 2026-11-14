@@ -174,6 +174,18 @@ void reconfigure_emulator(const rasta_options &requested_options,
     SDL_Window *window, SDL_Renderer *renderer, SDL_Texture *&texture,
     std::uint32_t &zoom, int &pitch)
 {
+    // A repeated subscription must not reset the window, texture or mapping.
+    // Compare against the live zoom, which keyboard input can change.
+    if (requested_options.width == active_options.width &&
+        requested_options.height == active_options.height &&
+        requested_options.bits_per_pixel == active_options.bits_per_pixel &&
+        requested_options.framebuffer_path == active_options.framebuffer_path &&
+        requested_options.window_scale == zoom &&
+        requested_options.show_cursor == active_options.show_cursor &&
+        requested_options.inverse_pixels == active_options.inverse_pixels) {
+        return;
+    }
+
     const std::size_t framebuffer_size = calculate_framebuffer_size(
         requested_options.width, requested_options.height,
         requested_options.bits_per_pixel);

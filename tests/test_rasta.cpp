@@ -9,10 +9,14 @@
 #include "raster_decoder.h"
 #include "rasta_options.h"
 
+#include <algorithm>
 #include <cstdlib>
+#include <filesystem>
 #include <iostream>
 #include <string>
 #include <vector>
+
+#include <unistd.h>
 
 namespace {
 
@@ -33,6 +37,60 @@ bool test_framebuffer_size()
             "3x1x2 should occupy 1 byte") &&
         expect(calculate_framebuffer_size(5, 1, 3) == 2,
             "5x1x3 should occupy 2 bytes");
+}
+
+// Exercise the real shared mappings: a late viewer must preserve a writer's
+// pixels, including alpha, when attaching, growing or shrinking the file.
+bool test_framebuffer_preserves_pixels()
+{
+    char directory[] = "framebuffer-test-XXXXXX";
+    if (!expect(mkdtemp(directory) != nullptr, "create framebuffer test directory")) {
+        return false;
+    }
+    const std::filesystem::path path =
+        std::filesystem::path(directory) / "framebuffer";
+    bool passed = true;
+    try {
+        const std::vector<std::uint8_t> pixels = {
+            0x12, 0x34, 0x56, 0xff, 0xab, 0xcd, 0xef, 0xff
+        };
+        framebuffer_file writer(path.string(), pixels.size());
+        passed &= expect(std::all_of(writer.data(),
+            writer.data() + pixels.size(), [](auto byte) { return byte == 0; }),
+            "new framebuffer bytes should be zero");
+        std::copy(pixels.begin(), pixels.end(), writer.data());
+        {
+            framebuffer_file viewer(path.string(), pixels.size());
+            passed &= expect(std::equal(pixels.begin(), pixels.end(), viewer.data()),
+                "attaching a viewer must preserve all BGRA bytes");
+            viewer.data()[0] = 0x77;
+            passed &= expect(writer.data()[0] == 0x77,
+                "writer and viewer should still share their mapping");
+            writer.data()[0] = pixels[0];
+        }
+        {
+            framebuffer_file larger(path.string(), pixels.size() * 2);
+            passed &= expect(std::equal(pixels.begin(), pixels.end(), larger.data()),
+                "growing the framebuffer must preserve existing bytes");
+            passed &= expect(std::all_of(larger.data() + pixels.size(),
+                larger.data() + pixels.size() * 2,
+                [](auto byte) { return byte == 0; }),
+                "newly grown bytes should be zero");
+        }
+        {
+            framebuffer_file smaller(path.string(), pixels.size() / 2);
+            passed &= expect(std::equal(pixels.begin(),
+                pixels.begin() + pixels.size() / 2, smaller.data()),
+                "shrinking the framebuffer must preserve retained bytes");
+            passed &= expect(std::filesystem::file_size(path) == pixels.size() / 2,
+                "framebuffer should have the requested size");
+        }
+    } catch (const std::exception &error) {
+        std::cerr << "framebuffer test: " << error.what() << '\n';
+        passed = false;
+    }
+    std::filesystem::remove_all(directory);
+    return passed;
 }
 
 bool test_argument_parsing_success()
@@ -303,6 +361,9 @@ bool test_packed_pixel_decode_inverse()
 
 int main()
 {
+    if (!test_framebuffer_preserves_pixels()) {
+        return EXIT_FAILURE;
+    }
     if (!test_framebuffer_size()) {
         return EXIT_FAILURE;
     }

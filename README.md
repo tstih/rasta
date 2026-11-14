@@ -104,6 +104,12 @@ Startup creates or resizes the framebuffer file to:
 ceil(width * height * bits_per_pixel / 8)
 ```
 
+Existing bytes are preserved when opening or resizing the framebuffer; newly
+added bytes are zero-filled. Identical configuration subscriptions leave the
+window, texture and mapping unchanged. A client can therefore draw before its
+subscription is processed without losing the scene. Writers must coordinate
+actual size changes so they do not access bytes beyond the resized file.
+
 Pixels are packed linearly and read most-significant-bit first.
 
 If `bits_per_pixel` is omitted, it defaults to `1`.

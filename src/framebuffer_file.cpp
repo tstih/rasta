@@ -1,5 +1,5 @@
 // Implements a memory-mapped framebuffer file for raster emulation.
-// The file is recreated to the packed linear raster size and then mapped
+// The file is resized without discarding existing pixels and then mapped
 // read-write so another process can update pixels without IPC copies.
 //
 // MIT License (see: LICENSE)
@@ -31,7 +31,7 @@ framebuffer_file::framebuffer_file(const std::string &path,
     std::size_t size_bytes)
     : path_(path), fd_(-1), size_bytes_(size_bytes), data_(nullptr)
 {
-    fd_ = open(path_.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0644);
+    fd_ = open(path_.c_str(), O_RDWR | O_CREAT, 0644);
     if (fd_ < 0) {
         throw make_errno_error("unable to open framebuffer file " + path_);
     }
